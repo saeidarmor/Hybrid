@@ -15,3 +15,7 @@ This project aims to improve existing methods for similar diagnosis retrieval in
 **Supervisor:** Dr. Seyedreza Taghizadeh
 
 ## Output & Results
+محدودیت عملی: الگوریتم اصلی برای مجموعه‌داده‌های بالینی واقعی با هزاران بیمار غیرکارآمد است و نیاز به نسخه‌ی بهینه‌شده (مثلاً با نمونه‌برداری ترکیبات یا استفاده از تقریب‌های هوشمند) دارد.
+(Base1.jpg)
+(Base2.jpg)
+
