@@ -16,5 +16,5 @@ This project aims to improve existing methods for similar diagnosis retrieval in
 
 ## Output & Results
 [BaseResult1](Base1.jpg)
-[BaseResult2](Base2.jpg)
+[BaseResult2](Base 2.jpg)
 
