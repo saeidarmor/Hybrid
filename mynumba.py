@@ -2,7 +2,9 @@ import numpy as np
 import time
 import math
 import itertools
-from numba import njit
+import numba
+from numba import njit, prange
+
 
 # --- 1. DATA GENERATION ---
 np.random.seed(42)
@@ -39,45 +41,51 @@ query = np.array([
 ])
 
 
-# --- 2. NUMBA CORE LOGIC ---
-@njit
-def numba_core_scoring_serial(X, query, subsets):
-    """
-    این تابع توسط کامپایلر Numba به کد ماشین تبدیل می‌شود.
-    حلقه‌ها در اینجا بسیار سریع اجرا می‌شوند.
-    """
+# --- 2. PARALLEL NUMBA CORE ---
+@njit(parallel=True)
+def numba_core_scoring_parallel(X, query, subsets):
     n_patients = X.shape[0]
     n_subsets = subsets.shape[0]
-    votes = np.zeros(n_patients, dtype=np.int32)
-
-    if n_subsets == 0:
-        return votes
-
     k = subsets.shape[1]
 
-    for i in range(n_subsets):
+    n_threads = numba.get_num_threads()
+    local_votes = np.zeros((n_threads, n_patients), dtype=np.int32)
+
+    for i in prange(n_subsets):
+        tid = numba.get_thread_id()
         subset = subsets[i]
 
-        # محاسبه فاصله اولین بیمار برای شروع مقایسه
+        # distance for patient 0
         min_dist = 0.0
         for j in range(k):
-            feat_idx = subset[j]
-            min_dist += np.abs(X[0, feat_idx] - query[feat_idx])
+            idx = subset[j]
+            diff = X[0, idx] - query[idx]
+            if diff < 0:
+                diff = -diff
+            min_dist += diff
         closest = 0
 
-        # بررسی بقیه بیماران
+        # remaining patients
         for p in range(1, n_patients):
-            current_dist = 0.0
-            # حلقه دستی برای سرعت بیشتر در Numba
+            dist = 0.0
             for j in range(k):
-                feat_idx = subset[j]
-                current_dist += np.abs(X[p, feat_idx] - query[feat_idx])
+                idx = subset[j]
+                diff = X[p, idx] - query[idx]
+                if diff < 0:
+                    diff = -diff
+                dist += diff
 
-            if current_dist < min_dist:
-                min_dist = current_dist
+            if dist < min_dist:
+                min_dist = dist
                 closest = p
 
-        votes[closest] += 1
+        local_votes[tid, closest] += 1
+
+    # reduction
+    votes = np.zeros(n_patients, dtype=np.int32)
+    for t in range(n_threads):
+        for p in range(n_patients):
+            votes[p] += local_votes[t, p]
 
     return votes
 
@@ -88,16 +96,16 @@ def numba_scoring_wrapper(X, query, k=None, L=5):
         k = m // 2
 
     total_comb = math.comb(m, k)
-    print(f"[Numba] Processing {total_comb:,} subsets...")
+    print(f"[Numba] Processing {total_comb:,} subsets")
 
-    # تبدیل ترکیب‌ها به آرایه نامپای (چون Numba با لیست پایتون کند است)
-    subsets_list = list(itertools.combinations(range(m), k))
-    subsets_np = np.array(subsets_list, dtype=np.int32)
+    subsets_np = np.array(
+        list(itertools.combinations(range(m), k)),
+        dtype=np.int32
+    )
 
-    # اجرای تابع کامپایل شده
-    votes = numba_core_scoring_serial(X, query, subsets_np)
-
+    votes = numba_core_scoring_parallel(X, query, subsets_np)
     top_L = np.argsort(-votes)[:L]
+
     return top_L, votes
 
 
@@ -107,18 +115,16 @@ if __name__ == "__main__":
     L_val = 5
 
     print("=" * 60)
-    print("Running NUMBA Algorithm...")
+    print("Running PARALLEL NUMBA Algorithm")
 
-    # Warm-up (کامپایل اولیه)
-    print("Compiling (Warm-up)...")
+    print("Compiling (warm-up)...")
     _ = numba_scoring_wrapper(X, query, k=k_val, L=L_val)
 
-    # اجرای اصلی و زمان‌گیری
-    start_time = time.time()
+    start = time.time()
     top_patients, vote_counts = numba_scoring_wrapper(X, query, k=k_val, L=L_val)
-    end_time = time.time()
+    end = time.time()
 
-    print(f"Top L={L_val} Patients: {top_patients}")
-    print(f"Votes: {vote_counts[top_patients]}")
-    print(f"Time Taken: {end_time - start_time:.4f} seconds")
+    print(f"Top L={L_val} Patients:", top_patients)
+    print("Votes:", vote_counts[top_patients])
+    print(f"Time Taken: {end - start:.4f} seconds")
     print("=" * 60)
